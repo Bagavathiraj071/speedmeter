@@ -1,1 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Speed Meter</title>
+<style>
+:root{--bg:#fff;--fg:#111;--mut:#777;--card:#f2f2f7;--acc:#0a84ff;--red:#ff453a}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--fg:#fff;--mut:#98989f;--card:#1c1c1e}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:-apple-system,system-ui,sans-serif}
+body{padding:env(safe-area-inset-top) 20px env(safe-area-inset-bottom);display:flex;flex-direction:column;gap:18px;align-items:center;justify-content:center;text-align:center}
+h1{font-size:17px;color:var(--mut);margin:0;font-weight:600}
+#down{font-size:84px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.mut{color:var(--mut)}
+.row{display:flex;gap:12px;width:100%;max-width:420px}
+.card{flex:1;background:var(--card);border-radius:16px;padding:14px}
+.card b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
+canvas{width:100%;max-width:420px;height:130px;background:var(--card);border-radius:16px}
+button{width:100%;max-width:420px;padding:16px;font-size:19px;font-weight:700;border:0;border-radius:16px;background:var(--acc);color:#fff}
+button.on{background:var(--red)}
+#err{font-size:13px;color:var(--red);min-height:16px}
+</style>
+</head>
+<body>
+<h1>Internet Speed</h1>
+<div><div id="down">0.0</div><div class="mut">Mbps download</div></div>
+<div class="row">
+  <div class="card"><b id="up">0.0</b><span class="mut">Upload Mbps</span></div>
+  <div class="card"><b id="ping">0</b><span class="mut">Ping ms</span></div>
+</div>
+<canvas id="c" width="840" height="260"></canvas>
+<div id="err"></div>
+<button id="btn">Start</button>
+<script>
+const BASE = "https://speed.cloudflare.com";
+const $ = id => document.getElementById(id);
+let running = false, hist = [], wake = null;
+
+async function timePing(){
+  const t = performance.now();
+  await fetch(BASE + "/__down?bytes=0&r=" + Math.random(), {cache:"no-store"});
+  return Math.round(performance.now() - t);
+}
+async function timeDown(){
+  const t = performance.now();
+  const r = await fetch(BASE + "/__down?bytes=2000000&r=" + Math.random(), {cache:"no-store"});
+  const b = await r.arrayBuffer();
+  return b.byteLength * 8 / ((performance.now() - t) / 1000) / 1e6;
+}
+async function timeUp(){
+  const body = new Uint8Array(500000);
+  const t = performance.now();
+  await fetch(BASE + "/__up", {method:"POST", body, cache:"no-store"});
+  return body.length * 8 / ((performance.now() - t) / 1000) / 1e6;
+}
+function draw(){
+  const c = $("c"), g = c.getContext("2d"), w = c.width, h = c.height;
+  g.clearRect(0, 0, w, h);
+  if (hist.length < 2) return;
+  const max = Math.max(...hist, 1) * 1.15;
+  g.strokeStyle = "#0a84ff"; g.lineWidth = 4; g.lineJoin = "round"; g.beginPath();
+  hist.forEach((v, i) => {
+    const x = i / (hist.length - 1) * (w - 20) + 10, y = h - 12 - v / max * (h - 24);
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  });
+  g.stroke();
+}
+async function loop(){
+  while (running){
+    try{
+      $("err").textContent = "";
+      $("ping").textContent = await timePing();
+      const d = await timeDown();
+      $("down").textContent = d.toFixed(1);
+      hist.push(d); if (hist.length > 40) hist.shift(); draw();
+      $("up").textContent = (await timeUp()).toFixed(1);
+    }catch(e){
+      $("err").textContent = "Test failed. Check your connection or that this page is hosted over https.";
+    }
+    await new Promise(r => setTimeout(r, 2500));
+  }
+}
+$("btn").onclick = async () => {
+  running = !running;
+  $("btn").textContent = running ? "Stop" : "Start";
+  $("btn").classList.toggle("on", running);
+  try{
+    if (running && navigator.wakeLock) wake = await navigator.wakeLock.request("screen");
+    else if (wake){ wake.release(); wake = null; }
+  }catch(e){}
+  if (running) loop();
+};
+</script>
+</body>
+</html>
 
